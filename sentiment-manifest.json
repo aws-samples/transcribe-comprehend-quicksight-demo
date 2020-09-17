@@ -1,0 +1,12 @@
+{
+  "fileLocations": [
+    {
+      "URIPrefixes": [
+        "s3://transcribe-sentiment-poc/analytics/sentiment/"
+      ]
+    }
+  ],
+  "globalUploadSettings": {
+    "format": "CSV"
+  }
+}

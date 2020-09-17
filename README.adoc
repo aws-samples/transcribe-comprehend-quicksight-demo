@@ -26,7 +26,7 @@ The language for processing is spanish by default, you can change it in the SAM 
 
 ### Architecture:
 
-![Architecture](sentiment-blog.png?raw=true "Architecture")
+image::sentiment-blog.png[Architecture]
 
 ### Build
 

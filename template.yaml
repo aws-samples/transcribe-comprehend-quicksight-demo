@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless application used to transcribe and comprehend an audio file.
+Parameters:
+  ProcessBucketName:
+    Type: String
+    Description: The name of the sentiment process bucket.
+    Default: transcribe-sentiment-poc
+  ProcessTableName:
+    Type: String
+    Description: The name of the process table name.
+    Default: transcribe-sentiment-poc-table
+  ComprehendLanguageCode:
+    Type: String
+    Description: The language code used by Amazon Comprehend.
+    Default: en
+  TranscribeLanguageCode:
+    Type: String
+    Description: The language code used in Amazon Transcribe.
+    Default: en-US
+
+Resources:
+  ProcessBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ProcessBucketName
+  ProcessTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TableName: !Ref ProcessTableName
+  ComprehendRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: comprehend.amazonaws.com
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}/*'
+  AnalyticsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Description: Execution role for the analytics lambda function.
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProcessTableName}'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+  ComprehendFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Description: Execution role for the comprehend lambda function.
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - transcribe:GetTranscriptionJob
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - comprehend:StartKeyPhrasesDetectionJob
+                  - comprehend:StartEntitiesDetectionJob
+                  - comprehend:StartSentimentDetectionJob
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProcessTableName}'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - Fn::GetAtt: [ComprehendRole, Arn]
+  TranscribeFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Description: Execution role for the transcribe lambda function.
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}'
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}/audio/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ProcessBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - transcribe:GetTranscriptionJob
+                  - transcribe:StartTranscriptionJob
+                  - transcribe:CreateVocabulary
+                  - transcribe:DeleteVocabulary
+                  - transcribe:ListVocabularies
+                  - transcribe:GetVocabulary
+                Resource: '*'
+              - Effect: "Allow"
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProcessTableName}'
+  AnalyticsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/Analytics
+      Handler: analytics.App::handleRequest
+      Runtime: java11
+      MemorySize: 512
+      Role: !GetAtt AnalyticsFunctionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ProcessTableName
+      Events:
+        KeyPhrasesFinish:
+          Type: S3
+          Properties:
+            Bucket: !Ref ProcessBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: keyPhrases/
+        SentimentFinish:
+          Type: S3
+          Properties:
+            Bucket: !Ref ProcessBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: sentiment/
+        EntitiesFinish:
+          Type: S3
+          Properties:
+            Bucket: !Ref ProcessBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: entities/
+  ComprehendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/Comprehend
+      Handler: comprehend.App::handleRequest
+      Runtime: java11
+      MemorySize: 512
+      Role: !GetAtt ComprehendFunctionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ProcessBucketName
+          TABLE_NAME: !Ref ProcessTableName
+          LANGUAGE_CODE: !Ref ComprehendLanguageCode
+          ROLE_ARN: !GetAtt ComprehendRole.Arn
+      Events:
+        TranscribeFinished:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.transcribe
+              detail-type:
+                - Transcribe Job State Change
+              detail:
+                TranscriptionJobStatus:
+                  - COMPLETED
+                  - FAILED
+  TranscribeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/Transcribe
+      Handler: transcribe.App::handleRequest
+      Runtime: java11
+      MemorySize: 256
+      Role: !GetAtt TranscribeFunctionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ProcessBucketName
+          TABLE_NAME: !Ref ProcessTableName
+          LANGUAGE_CODE: !Ref TranscribeLanguageCode
+      Events:
+        AudioUpload:
+          Type: S3
+          Properties:
+            Bucket: !Ref ProcessBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: audio/

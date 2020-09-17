@@ -1,0 +1,14 @@
+{
+  "version": "0",
+  "id": "event ID",
+  "detail-type":"Transcribe Job State Change",
+  "source": "aws.transcribe",
+  "account": "account ID",
+  "time": "2020-08-04T20:18:06.018Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "TranscriptionJobName": "41d03d0a-505b-4ea0-8e2d-336dca396d50",
+    "TranscriptionJobStatus": "COMPLETED"
+  }
+}
